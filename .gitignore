@@ -1,0 +1,369 @@
+# Collaboration Service - ClockWise API
+# Generated .gitignore for Spring Boot Kotlin microservice with advanced enterprise patterns
+
+### Java ###
+*.class
+*.log
+*.ctxt
+.mtj.tmp/
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+hs_err_pid*
+replay_pid*
+
+### Kotlin ###
+*.kt.class
+*.kt~
+
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+gradle-app.setting
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### Gradle Wrapper ###
+gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+### Spring Boot ###
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IDE - IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+*.swp
+*.swo
+*~
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### IDE - VS Code ###
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+### IDE - Eclipse ###
+.apt_generated/
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+### Windows ###
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+*.cache
+desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+### Linux ###
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+### Configuration Files ###
+# Application-specific configurations that should not be committed
+application-local.properties
+application-dev.properties
+application-secret.properties
+*.env
+.env.*
+!.env.example
+!.env.template
+
+# Sensitive configuration overrides
+application-*.yml
+application-*.yaml
+!application.yml
+!application.yaml
+!application-*.properties.example
+
+# Database configuration for local development
+db-local.properties
+datasource-local.yml
+
+### Security & Secrets ###
+# Keycloak and OAuth2 secrets
+*.p12
+*.jks
+*.keystore
+*.truststore
+keystore.*
+truststore.*
+jwt-secret.*
+oauth-secret.*
+client-secret.*
+
+# SSL/TLS certificates and private keys
+*.pem
+*.crt
+*.key
+*.csr
+*.p8
+ssl/
+certs/
+keys/
+certificates/
+
+# API keys and tokens
+api-keys.*
+*.token
+access-token.*
+refresh-token.*
+auth-config-local.*
+
+### Database ###
+# Database dumps and backups
+*.sql
+*.dump
+*.backup
+*.bak
+db-backup/
+backups/
+migrations-local/
+
+# Database connection files
+db-connection.*
+postgres-local.*
+r2dbc-local.*
+
+# Flyway local overrides
+flyway-local.*
+
+### Docker & Containerization ###
+# Docker compose overrides for local development
+docker-compose.override.yml
+docker-compose.local.yml
+docker-compose.dev.yml
+.dockerignore.local
+
+# Docker volumes and data
+docker-data/
+postgres-data/
+redis-data/
+kafka-data/
+
+### Kafka & Messaging ###
+# Kafka local configuration
+kafka-local.*
+kafka.properties
+server.properties
+consumer.properties
+producer.properties
+
+# Message queue data
+kafka-logs/
+zookeeper-data/
+
+### Monitoring & Observability ###
+# Prometheus metrics
+prometheus.yml
+prometheus-local.yml
+
+# Grafana configuration
+grafana-data/
+grafana.ini
+
+# Application logs
+logs/
+*.log.*
+application.log
+error.log
+debug.log
+trace.log
+access.log
+audit.log
+
+# Log4j2 local configuration
+log4j2-local.xml
+logback-local.xml
+
+### Testing ###
+# Test reports and coverage
+reports/
+test-results/
+coverage/
+jacoco/
+*.exec
+*.ser
+
+# Testcontainers
+.testcontainers/
+
+# Integration test data
+test-data/
+integration-test-data/
+
+### Performance & Profiling ###
+# JVM profiling files
+*.hprof
+*.jfr
+profiling/
+performance-reports/
+
+# Memory dumps
+heapdump.*
+*.mdmp
+*.dmp
+
+### Development Tools ###
+# JRebel
+rebel.xml
+rebel-remote.xml
+
+# Local development scripts
+run-local.*
+start-local.*
+dev-setup.*
+local-*.sh
+local-*.bat
+
+# Temporary development files
+temp/
+tmp/
+scratch/
+playground/
+experiments/
+
+### Deployment ###
+# Kubernetes local overrides
+k8s-local/
+kustomization-local.yaml
+helm-values-local.yaml
+
+# Terraform state (if used)
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+
+# Ansible local playbooks
+ansible-local/
+inventory-local
+
+### CI/CD ###
+# Local CI/CD overrides
+.github/workflows/local-*
+.gitlab-ci-local.yml
+jenkins-local/
+
+# Build artifacts from CI
+artifacts/
+build-artifacts/
+
+### Miscellaneous ###
+# Temporary files
+*.tmp
+*.temp
+*~
+.#*
+\#*#
+.*.swp
+.*.swo
+
+# Backup files
+*.orig
+*.backup
+*.bak
+
+# Archive files created during development
+*.archive
+dev-archive/
+
+# Local documentation drafts
+docs-local/
+readme-local.*
+
+# IDE generated files
+.idea_modules/
+atlassian-ide-plugin.xml
+com_crashlytics_export_strings.xml
+crashlytics.properties
+crashlytics-build.properties
+fabric.properties
+
+# Collaboration and communication tools
+.slack/
+.discord/
+.teams/
+
+# Project-specific ignores for ClockWise
+# Business logic exports
+business-rules-export/
+planning-algorithms-export/
+
+# Local user data for testing
+test-users/
+mock-employee-data/
+
+# Performance test results
+load-test-results/
+stress-test-results/
+
+# API documentation generated locally
+api-docs-local/
+swagger-local/
+
+# Local feature flags configuration
+feature-flags-local.*
+toggles-local.*
