@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.Authentication
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
 import reactor.core.publisher.Mono
 import jakarta.validation.Valid
@@ -18,6 +19,15 @@ private val logger = KotlinLogging.logger {}
 class ShiftMarketplaceController(
     private val shiftMarketplaceService: ShiftMarketplaceService
 ) {
+    private fun extractUserInfo(authentication: Authentication): Map<String, Any?> {
+        val jwt = authentication.principal as Jwt
+        return mapOf(
+            "userId" to jwt.getClaimAsString("sub"),
+            "email" to jwt.getClaimAsString("email"),
+            "firstName" to jwt.getClaimAsString("given_name"),
+            "lastName" to jwt.getClaimAsString("family_name")
+        )
+    }
     
     @PostMapping("/shifts/{planningServiceShiftId}")
     @PreAuthorize("hasAnyRole('admin', 'manager', 'employee')")
@@ -26,7 +36,7 @@ class ShiftMarketplaceController(
         @Valid @RequestBody request: CreateExchangeShiftRequest,
         authentication: Authentication
     ): Mono<ResponseEntity<ExchangeShiftDto>> {
-        val userId = authentication.name
+        val userId = extractUserInfo(authentication)["userId"] as String
         logger.info { "User $userId posting shift $planningServiceShiftId to marketplace" }
         
         return shiftMarketplaceService.postShiftToMarketplace(
