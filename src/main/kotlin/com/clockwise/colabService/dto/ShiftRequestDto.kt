@@ -76,6 +76,7 @@ data class ShiftExchangeEventDto(
     val requestType: RequestType,
     val swapShiftId: String? = null,
     val businessUnitId: String,
+    val status: String = "APPROVED", // APPROVED or REJECTED
     val timestamp: OffsetDateTime = OffsetDateTime.now()
 )
 

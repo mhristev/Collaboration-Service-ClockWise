@@ -68,5 +68,6 @@ enum class ExchangeShiftStatus {
     AWAITING_MANAGER_APPROVAL,
     APPROVED,
     REJECTED,
-    CANCELLED
+    CANCELLED,
+    COMPLETED
 }

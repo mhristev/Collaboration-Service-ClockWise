@@ -3,6 +3,7 @@ package com.clockwise.colabService.service
 import com.clockwise.colabService.domain.ExchangeShift
 import com.clockwise.colabService.domain.ExchangeShiftStatus
 import com.clockwise.colabService.domain.RequestStatus
+import com.clockwise.colabService.domain.RequestType
 import com.clockwise.colabService.domain.ShiftRequest
 import com.clockwise.colabService.dto.CreateExchangeShiftRequest
 import com.clockwise.colabService.dto.CreateShiftRequestRequest
@@ -234,15 +235,19 @@ class ShiftMarketplaceService(
                                 shiftRequestRepository.updateStatus(request.id!!, newRequestStatus)
                             )
                             .then(
-                                // Send Kafka event if approved, or return to marketplace if rejected
+                                // Handle different status outcomes
                                 if (status.uppercase() == "APPROVED") {
-                                    sendApprovalEventToPlanning(request, exchangeShift)
+                                    // Send approval event to Planning Service to execute the shift change
+                                    sendApprovalEventToPlanning(request, exchangeShift, "APPROVED")
                                 } else {
-                                    // If rejected, return exchange shift to marketplace
+                                    // If rejected, return exchange shift to marketplace and notify Planning Service
                                     exchangeShiftRepository.updateStatusAndAcceptedRequest(
                                         exchangeShiftId,
                                         ExchangeShiftStatus.OPEN,
                                         null
+                                    ).then(
+                                        // Send rejection event (Planning Service may need to know for logging/auditing)
+                                        sendApprovalEventToPlanning(request, exchangeShift, "REJECTED")
                                     )
                                 }
                             )
@@ -352,7 +357,7 @@ class ShiftMarketplaceService(
             .doOnSuccess { logger.info { "Successfully cancelled exchange shift $exchangeShiftId" } }
     }
     
-    private fun sendApprovalEventToPlanning(request: ShiftRequest, exchangeShift: ExchangeShift): Mono<Void> {
+    private fun sendApprovalEventToPlanning(request: ShiftRequest, exchangeShift: ExchangeShift, status: String = "APPROVED"): Mono<Void> {
         val event = ShiftExchangeEventDto(
             requestId = request.id!!,
             exchangeShiftId = exchangeShift.id!!,
@@ -361,15 +366,25 @@ class ShiftMarketplaceService(
             requesterUserId = request.requesterUserId,
             requestType = request.requestType,
             swapShiftId = request.swapShiftId,
-            businessUnitId = exchangeShift.businessUnitId
+            businessUnitId = exchangeShift.businessUnitId,
+            status = status
         )
         
+        logger.info { "Sending ${status.lowercase()} event for ${request.requestType} request ${request.id} to Planning Service" }
+        
         return kafkaProducerService.sendShiftExchangeApprovalEvent(event)
-            .doOnSuccess { logger.info { "Sent approval event to Planning Service for request ${request.id}" } }
-            .doOnError { error -> logger.error(error) { "Failed to send approval event to Planning Service" } }
+            .doOnSuccess { 
+                logger.info { 
+                    when (request.requestType) {
+                        RequestType.SWAP_SHIFT -> "Sent SWAP_SHIFT $status event: original=${exchangeShift.planningServiceShiftId}, swap=${request.swapShiftId}"
+                        RequestType.TAKE_SHIFT -> "Sent TAKE_SHIFT $status event: shift=${exchangeShift.planningServiceShiftId}, new_user=${request.requesterUserId}"
+                    }
+                }
+            }
+            .doOnError { error -> logger.error(error) { "Failed to send $status event to Planning Service" } }
             .onErrorResume { 
-                // Log error but don't fail the transaction - the approval is still valid
-                logger.warn { "Continuing with approval despite Kafka error" }
+                // Log error but don't fail the transaction - the status change is still valid
+                logger.warn { "Continuing with $status despite Kafka error" }
                 Mono.empty()
             }
     }
