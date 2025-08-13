@@ -35,6 +35,34 @@ data class PostDto(
     }
 }
 
+data class PostSummaryDto(
+    val id: String,
+    val title: String,
+    val authorUserId: String,
+    val businessUnitId: String,
+    val targetAudience: Post.TargetAudience,
+    val creatorUserFirstName: String? = null,
+    val creatorUserLastName: String? = null,
+    val createdAt: Instant,
+    val updatedAt: Instant
+) {
+    companion object {
+        fun fromDomain(post: Post): PostSummaryDto {
+            return PostSummaryDto(
+                id = post.id!!,
+                title = post.title,
+                authorUserId = post.authorUserId,
+                businessUnitId = post.businessUnitId,
+                targetAudience = post.targetAudience,
+                creatorUserFirstName = post.creatorUserFirstName,
+                creatorUserLastName = post.creatorUserLastName,
+                createdAt = post.createdAt,
+                updatedAt = post.updatedAt
+            )
+        }
+    }
+}
+
 data class CreatePostRequest(
     @field:NotBlank(message = "Title is required")
     @field:Size(max = 200, message = "Title must be less than 200 characters")
@@ -51,7 +79,7 @@ data class CreatePostRequest(
 )
 
 data class PostListResponse(
-    val posts: List<PostDto>,
+    val posts: List<PostSummaryDto>,
     val page: Int,
     val size: Int,
     val total: Long

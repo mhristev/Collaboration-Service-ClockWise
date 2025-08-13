@@ -63,6 +63,51 @@ class PostController(
             }
     }
     
+    @GetMapping("/my-posts")
+    @PreAuthorize("hasAnyRole('admin', 'manager')")
+    fun getMyPosts(authentication: Authentication): Mono<ResponseEntity<List<PostSummaryDto>>> {
+        val userId = extractUserInfo(authentication)["userId"] as String
+        val userRoles = extractRoles(authentication)
+        
+        logger.debug { "Getting posts created by user $userId" }
+        
+        return postService.getMyPosts(userId, userRoles)
+            .map { PostSummaryDto.fromDomain(it) }
+            .collectList()
+            .map { posts ->
+                ResponseEntity.ok(posts)
+            }
+            .onErrorResume { error ->
+                logger.error(error) { "Error getting posts for user $userId: ${error.message}" }
+                Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build())
+            }
+    }
+    
+    @GetMapping("/{postId}")
+    @PreAuthorize("hasAnyRole('admin', 'manager', 'employee')")
+    fun getPostById(
+        @PathVariable postId: String,
+        authentication: Authentication
+    ): Mono<ResponseEntity<PostDto>> {
+        val userRoles = extractRoles(authentication)
+        
+        logger.debug { "Getting post by ID: $postId" }
+        
+        return postService.getPostById(postId, userRoles)
+            .map { post ->
+                ResponseEntity.ok(PostDto.fromDomain(post))
+            }
+            .onErrorResume { error ->
+                logger.error(error) { "Error getting post $postId: ${error.message}" }
+                when (error) {
+                    is IllegalArgumentException -> Mono.just(ResponseEntity.notFound().build())
+                    is org.springframework.security.access.AccessDeniedException -> 
+                        Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).build())
+                    else -> Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build())
+                }
+            }
+    }
+    
     @GetMapping
     @PreAuthorize("hasAnyRole('admin', 'manager', 'employee')")
     fun getPostsForBusinessUnit(
@@ -81,7 +126,7 @@ class PostController(
             .map { tuple ->
                 ResponseEntity.ok(
                     PostListResponse(
-                        posts = tuple.t1.map { PostDto.fromDomain(it) },
+                        posts = tuple.t1.map { PostSummaryDto.fromDomain(it) },
                         page = page,
                         size = size,
                         total = tuple.t2
@@ -90,26 +135,6 @@ class PostController(
             }
             .onErrorResume { error ->
                 logger.error(error) { "Error getting posts for business unit $businessUnitId: ${error.message}" }
-                Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build())
-            }
-    }
-    
-    @GetMapping("/my-posts")
-    @PreAuthorize("hasAnyRole('admin', 'manager')")
-    fun getMyPosts(authentication: Authentication): Mono<ResponseEntity<List<PostDto>>> {
-        val userId = extractUserInfo(authentication)["userId"] as String
-        val userRoles = extractRoles(authentication)
-        
-        logger.debug { "Getting posts created by user $userId" }
-        
-        return postService.getMyPosts(userId, userRoles)
-            .map { PostDto.fromDomain(it) }
-            .collectList()
-            .map { posts ->
-                ResponseEntity.ok(posts)
-            }
-            .onErrorResume { error ->
-                logger.error(error) { "Error getting posts for user $userId: ${error.message}" }
                 Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build())
             }
     }

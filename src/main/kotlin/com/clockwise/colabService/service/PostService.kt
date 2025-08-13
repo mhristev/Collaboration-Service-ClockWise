@@ -71,6 +71,24 @@ class PostService(
         return postRepository.findByAuthorUserId(authorUserId)
     }
     
+    fun getPostById(postId: String, userRoles: Set<String>): Mono<Post> {
+        logger.debug { "Retrieving post by ID: $postId" }
+        
+        return postRepository.findById(postId)
+            .switchIfEmpty(Mono.error(IllegalArgumentException("Post not found")))
+            .flatMap { post ->
+                // Apply business rules based on user roles and target audience
+                when {
+                    // Admins and managers can see all posts
+                    userRoles.any { it in listOf("admin", "manager") } -> Mono.just(post)
+                    // Employees can only see posts targeted to all employees
+                    userRoles.contains("employee") && post.targetAudience == Post.TargetAudience.ALL_EMPLOYEES -> Mono.just(post)
+                    // Otherwise, access denied
+                    else -> Mono.error(AccessDeniedException("You don't have permission to view this post"))
+                }
+            }
+    }
+    
     fun deletePost(postId: String, userId: String, userRoles: Set<String>): Mono<Void> {
         return postRepository.findById(postId)
             .switchIfEmpty(Mono.error(IllegalArgumentException("Post not found")))
