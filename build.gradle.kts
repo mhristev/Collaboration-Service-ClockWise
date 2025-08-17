@@ -31,19 +31,19 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.flywaydb:flyway-core")
 	implementation("org.springframework:spring-jdbc")
 	implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 	implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
-	implementation("org.springframework.cloud:spring-cloud-starter-gateway-server-webflux")
 	implementation("org.springframework.kafka:spring-kafka")
 	implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+	// Kotlin logging
+	implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
 	// Firebase Admin SDK - Updated to latest version to use FCM v1 API
-	implementation("com.google.firebase:firebase-admin:9.4.1") {
-		force = true
-	}
+	implementation("com.google.firebase:firebase-admin:9.4.1")
 	runtimeOnly("org.postgresql:postgresql")
 	runtimeOnly("org.postgresql:r2dbc-postgresql")
 	runtimeOnly("org.flywaydb:flyway-database-postgresql")

@@ -10,6 +10,7 @@ import com.clockwise.colabService.dto.CreateShiftRequestRequest
 import com.clockwise.colabService.dto.ShiftExchangeEventDto
 import com.clockwise.colabService.repository.ExchangeShiftRepository
 import com.clockwise.colabService.repository.ShiftRequestRepository
+import com.clockwise.colabService.listener.UsersByBusinessUnitResponseListener
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import java.time.OffsetDateTime
+import java.util.UUID
 
 private val logger = KotlinLogging.logger {}
 
@@ -24,7 +26,9 @@ private val logger = KotlinLogging.logger {}
 class ShiftMarketplaceService(
     private val exchangeShiftRepository: ExchangeShiftRepository,
     private val shiftRequestRepository: ShiftRequestRepository,
-    private val kafkaProducerService: KafkaProducerService
+    private val kafkaProducerService: KafkaProducerService,
+    private val usersByBusinessUnitResponseListener: UsersByBusinessUnitResponseListener,
+    private val isFirebaseEnabled: Boolean
 ) {
     
     @Transactional
@@ -53,7 +57,15 @@ class ShiftMarketplaceService(
                         userLastName = request.userLastName
                     )
                     exchangeShiftRepository.save(exchangeShift)
-                        .doOnSuccess { logger.info { "Successfully posted shift to marketplace: ${it.id}" } }
+                        .doOnSuccess { savedExchangeShift ->
+                            logger.info { "Successfully posted shift to marketplace: ${savedExchangeShift.id}" }
+                            // Send push notifications asynchronously after exchange shift is saved
+                            if (isFirebaseEnabled) {
+                                triggerExchangeShiftNotifications(savedExchangeShift)
+                            } else {
+                                logger.debug { "Firebase is disabled - skipping notifications for exchange shift ${savedExchangeShift.id}" }
+                            }
+                        }
                 }
             )
     }
@@ -387,5 +399,30 @@ class ShiftMarketplaceService(
                 logger.warn { "Continuing with $status despite Kafka error" }
                 Mono.empty()
             }
+    }
+    
+    /**
+     * Triggers push notifications for a new exchange shift by requesting users from User Service
+     */
+    private fun triggerExchangeShiftNotifications(exchangeShift: ExchangeShift) {
+        try {
+            val correlationId = UUID.randomUUID().toString()
+            
+            // Register pending notification
+            usersByBusinessUnitResponseListener.registerPendingExchangeShiftNotification(correlationId, exchangeShift)
+            
+            // Request users by business unit
+            kafkaProducerService.requestUsersByBusinessUnitId(exchangeShift.businessUnitId, correlationId)
+                .subscribe(
+                    { 
+                        logger.debug { "Successfully requested users for exchange shift notification: ${exchangeShift.id}" }
+                    },
+                    { error ->
+                        logger.error("Failed to request users for exchange shift notification: ${error.message}", error)
+                    }
+                )
+        } catch (e: Exception) {
+            logger.error("Error triggering notifications for exchange shift ${exchangeShift.id}: ${e.message}", e)
+        }
     }
 }

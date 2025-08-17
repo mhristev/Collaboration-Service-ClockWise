@@ -1,6 +1,7 @@
 package com.clockwise.colabService.service
 
 import com.clockwise.colabService.domain.Post
+import com.clockwise.colabService.domain.ExchangeShift
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.Message
 import com.google.firebase.messaging.Notification
@@ -73,6 +74,49 @@ class NotificationService(
             }
         } catch (e: Exception) {
             logger.error("Error sending notifications: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Sends an exchange shift notification to multiple users in a business unit
+     */
+    suspend fun sendExchangeShiftNotificationToBusinessUnit(exchangeShift: ExchangeShift, users: List<UserInfo>) {
+        if (!isFirebaseEnabled || firebaseMessaging == null) {
+            logger.warn("Firebase is not enabled or configured - skipping notification send")
+            return
+        }
+
+        // Send to all users in the business unit (no filtering like posts)
+        val usersWithTokens = users.filter { !it.fcmToken.isNullOrBlank() }
+        if (usersWithTokens.isEmpty()) {
+            logger.info("No eligible users with FCM tokens found for business unit ${exchangeShift.businessUnitId}")
+            return
+        }
+
+        logger.info("Sending exchange shift notification to ${usersWithTokens.size} users in business unit ${exchangeShift.businessUnitId}")
+
+        val notification = buildExchangeShiftNotification(exchangeShift)
+        var successCount = 0
+        var failureCount = 0
+
+        try {
+            withContext(Dispatchers.IO) {
+                usersWithTokens.forEach { user ->
+                    try {
+                        val message = buildExchangeShiftNotificationMessage(user.fcmToken!!, notification, exchangeShift)
+                        val response = firebaseMessaging.send(message)
+                        logger.info("Successfully sent exchange shift notification to user ${user.id} (${user.role}), message ID: $response")
+                        successCount++
+                    } catch (e: Exception) {
+                        logger.warn("Failed to send exchange shift notification to user ${user.id} (${user.role}): ${e.message}")
+                        failureCount++
+                    }
+                }
+                
+                logger.info("Exchange shift notification summary: $successCount successful, $failureCount failures")
+            }
+        } catch (e: Exception) {
+            logger.error("Error sending exchange shift notifications: ${e.message}", e)
         }
     }
 
@@ -154,6 +198,61 @@ class NotificationService(
             .putData("businessUnitId", post.businessUnitId)
             .putData("authorName", "${post.creatorUserFirstName ?: ""} ${post.creatorUserLastName ?: ""}".trim())
             .putData("createdAt", post.createdAt.toString())
+            .build()
+    }
+
+    /**
+     * Builds the notification payload for an exchange shift
+     */
+    private fun buildExchangeShiftNotification(exchangeShift: ExchangeShift): Notification {
+        val title = "New Shift Available"
+        val posterName = "${exchangeShift.userFirstName ?: ""} ${exchangeShift.userLastName ?: ""}".trim()
+        
+        // Format the shift date if available
+        val shiftDate = exchangeShift.shiftStartTime?.let { startTime ->
+            val formatter = java.time.format.DateTimeFormatter.ofPattern("MMM dd")
+            startTime.format(formatter)
+        }
+        
+        val body = when {
+            posterName.isNotBlank() && shiftDate != null -> {
+                "$posterName has posted a shift for $shiftDate"
+            }
+            posterName.isNotBlank() -> {
+                "$posterName has posted a shift for exchange"
+            }
+            shiftDate != null -> {
+                "New shift available for $shiftDate"
+            }
+            else -> {
+                "A new shift is available for exchange"
+            }
+        }
+
+        return Notification.builder()
+            .setTitle(title)
+            .setBody(body)
+            .build()
+    }
+
+    /**
+     * Builds the complete FCM message for exchange shift
+     */
+    private fun buildExchangeShiftNotificationMessage(fcmToken: String, notification: Notification, exchangeShift: ExchangeShift): Message {
+        val posterName = "${exchangeShift.userFirstName ?: ""} ${exchangeShift.userLastName ?: ""}".trim()
+        
+        return Message.builder()
+            .setToken(fcmToken)
+            .setNotification(notification)
+            .putData("type", "new_exchange_shift")
+            .putData("exchangeShiftId", exchangeShift.id ?: "")
+            .putData("businessUnitId", exchangeShift.businessUnitId)
+            .putData("posterUserId", exchangeShift.posterUserId)
+            .putData("posterName", posterName)
+            .putData("shiftPosition", exchangeShift.shiftPosition ?: "")
+            .putData("shiftStartTime", exchangeShift.shiftStartTime?.toString() ?: "")
+            .putData("shiftEndTime", exchangeShift.shiftEndTime?.toString() ?: "")
+            .putData("createdAt", exchangeShift.createdAt.toString())
             .build()
     }
 
