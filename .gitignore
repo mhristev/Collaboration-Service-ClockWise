@@ -367,3 +367,7 @@ swagger-local/
 # Local feature flags configuration
 feature-flags-local.*
 toggles-local.*
+
+# Firebase service account credentials (sensitive)
+*firebase-adminsdk*.json
+clockwise-mobile-app-firebase-adminsdk-fbsvc-*.json
