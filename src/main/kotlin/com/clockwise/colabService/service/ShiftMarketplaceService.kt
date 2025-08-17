@@ -117,7 +117,15 @@ class ShiftMarketplaceService(
                                 requesterUserLastName = request.requesterUserLastName
                             )
                             shiftRequestRepository.save(shiftRequest)
-                                .doOnSuccess { logger.info { "Successfully submitted shift request: ${it.id}" } }
+                                .doOnSuccess { savedRequest ->
+                                    logger.info { "Successfully submitted shift request: ${savedRequest.id}" }
+                                    // Send notification to the exchange shift poster
+                                    if (isFirebaseEnabled) {
+                                        triggerShiftRequestNotifications(savedRequest, exchangeShift)
+                                    } else {
+                                        logger.debug { "Firebase is disabled - skipping shift request notifications for request ${savedRequest.id}" }
+                                    }
+                                }
                         }
                     }
             }
@@ -423,6 +431,37 @@ class ShiftMarketplaceService(
                 )
         } catch (e: Exception) {
             logger.error("Error triggering notifications for exchange shift ${exchangeShift.id}: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Triggers push notifications for a new shift request by requesting users from User Service
+     */
+    private fun triggerShiftRequestNotifications(shiftRequest: ShiftRequest, exchangeShift: ExchangeShift) {
+        try {
+            val correlationId = UUID.randomUUID().toString()
+            
+            logger.info { "Triggering shift request notification for request ${shiftRequest.id} to poster ${exchangeShift.posterUserId}" }
+            
+            // Register pending notification
+            usersByBusinessUnitResponseListener.registerPendingShiftRequestNotification(
+                correlationId, 
+                shiftRequest, 
+                exchangeShift
+            )
+            
+            // Request users by business unit (we need to find the poster in the business unit)
+            kafkaProducerService.requestUsersByBusinessUnitId(exchangeShift.businessUnitId, correlationId)
+                .subscribe(
+                    { 
+                        logger.debug { "Successfully requested users for shift request notification: ${shiftRequest.id}" }
+                    },
+                    { error ->
+                        logger.error("Failed to request users for shift request notification: ${error.message}", error)
+                    }
+                )
+        } catch (e: Exception) {
+            logger.error("Error triggering notifications for shift request ${shiftRequest.id}: ${e.message}", e)
         }
     }
 }

@@ -2,6 +2,7 @@ package com.clockwise.colabService.service
 
 import com.clockwise.colabService.domain.Post
 import com.clockwise.colabService.domain.ExchangeShift
+import com.clockwise.colabService.domain.ShiftRequest
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.Message
 import com.google.firebase.messaging.Notification
@@ -253,6 +254,103 @@ class NotificationService(
             .putData("shiftStartTime", exchangeShift.shiftStartTime?.toString() ?: "")
             .putData("shiftEndTime", exchangeShift.shiftEndTime?.toString() ?: "")
             .putData("createdAt", exchangeShift.createdAt.toString())
+            .build()
+    }
+
+    /**
+     * Sends a shift request notification to the exchange shift poster
+     */
+    suspend fun sendShiftRequestNotificationToPoster(shiftRequest: ShiftRequest, exchangeShift: ExchangeShift, posterUser: UserInfo) {
+        if (!isFirebaseEnabled || firebaseMessaging == null) {
+            logger.warn("Firebase is not enabled or configured - skipping notification send")
+            return
+        }
+
+        if (posterUser.fcmToken.isNullOrBlank()) {
+            logger.debug("Poster user ${posterUser.id} has no FCM token - skipping notification")
+            return
+        }
+
+        logger.info("Sending shift request notification to poster ${posterUser.id} for exchange shift ${exchangeShift.id}")
+
+        try {
+            val notification = buildShiftRequestNotification(shiftRequest, exchangeShift)
+            val message = buildShiftRequestNotificationMessage(posterUser.fcmToken!!, notification, shiftRequest, exchangeShift)
+            
+            withContext(Dispatchers.IO) {
+                val response = firebaseMessaging.send(message)
+                logger.info("Successfully sent shift request notification to poster ${posterUser.id}, message ID: $response")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to send shift request notification to poster ${posterUser.id}: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Builds the notification payload for a shift request
+     */
+    private fun buildShiftRequestNotification(shiftRequest: ShiftRequest, exchangeShift: ExchangeShift): Notification {
+        val title = "New Shift Request"
+        val requesterName = "${shiftRequest.requesterUserFirstName ?: ""} ${shiftRequest.requesterUserLastName ?: ""}".trim()
+        
+        // Format the shift date if available
+        val shiftDate = exchangeShift.shiftStartTime?.let { startTime ->
+            val formatter = java.time.format.DateTimeFormatter.ofPattern("MMM dd")
+            startTime.format(formatter)
+        }
+        
+        val requestTypeText = when (shiftRequest.requestType) {
+            com.clockwise.colabService.domain.RequestType.TAKE_SHIFT -> "take"
+            com.clockwise.colabService.domain.RequestType.SWAP_SHIFT -> "swap"
+        }
+        
+        val body = when {
+            requesterName.isNotBlank() && shiftDate != null -> {
+                "$requesterName wants to $requestTypeText your shift on $shiftDate"
+            }
+            requesterName.isNotBlank() -> {
+                "$requesterName wants to $requestTypeText your shift"
+            }
+            shiftDate != null -> {
+                "Someone wants to $requestTypeText your shift on $shiftDate"
+            }
+            else -> {
+                "Someone wants to $requestTypeText your shift"
+            }
+        }
+
+        return Notification.builder()
+            .setTitle(title)
+            .setBody(body)
+            .build()
+    }
+
+    /**
+     * Builds the complete FCM message for shift request
+     */
+    private fun buildShiftRequestNotificationMessage(
+        fcmToken: String, 
+        notification: Notification, 
+        shiftRequest: ShiftRequest, 
+        exchangeShift: ExchangeShift
+    ): Message {
+        val requesterName = "${shiftRequest.requesterUserFirstName ?: ""} ${shiftRequest.requesterUserLastName ?: ""}".trim()
+        
+        return Message.builder()
+            .setToken(fcmToken)
+            .setNotification(notification)
+            .putData("type", "shift_request")
+            .putData("shiftRequestId", shiftRequest.id ?: "")
+            .putData("exchangeShiftId", exchangeShift.id ?: "")
+            .putData("businessUnitId", exchangeShift.businessUnitId)
+            .putData("requesterUserId", shiftRequest.requesterUserId)
+            .putData("requesterName", requesterName)
+            .putData("requestType", shiftRequest.requestType.toString())
+            .putData("shiftPosition", exchangeShift.shiftPosition ?: "")
+            .putData("shiftStartTime", exchangeShift.shiftStartTime?.toString() ?: "")
+            .putData("shiftEndTime", exchangeShift.shiftEndTime?.toString() ?: "")
+            .putData("swapShiftId", shiftRequest.swapShiftId ?: "")
+            .putData("createdAt", shiftRequest.createdAt.toString())
             .build()
     }
 

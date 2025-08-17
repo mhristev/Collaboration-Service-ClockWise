@@ -4,6 +4,7 @@ import com.clockwise.colabService.service.NotificationService
 import com.clockwise.colabService.service.UserInfo
 import com.clockwise.colabService.domain.Post
 import com.clockwise.colabService.domain.ExchangeShift
+import com.clockwise.colabService.domain.ShiftRequest
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.runBlocking
@@ -75,7 +76,23 @@ class UsersByBusinessUnitResponseListener(
                             notificationService.sendPostNotificationToBusinessUnit(pendingNotification.post!!, users)
                         }
                         NotificationType.EXCHANGE_SHIFT -> {
-                            notificationService.sendExchangeShiftNotificationToBusinessUnit(pendingNotification.exchangeShift!!, users)
+                            // Filter out the poster user - they shouldn't receive notification for their own exchange shift
+                            val filteredUsers = users.filter { it.id != pendingNotification.exchangeShift!!.posterUserId }
+                            logger.info { "Filtered out poster user ${pendingNotification.exchangeShift!!.posterUserId} from exchange shift notifications. Sending to ${filteredUsers.size} users instead of ${users.size}" }
+                            notificationService.sendExchangeShiftNotificationToBusinessUnit(pendingNotification.exchangeShift!!, filteredUsers)
+                        }
+                        NotificationType.SHIFT_REQUEST -> {
+                            // Find the poster user by poster user ID
+                            val posterUser = users.find { it.id == pendingNotification.posterUserId }
+                            if (posterUser != null) {
+                                notificationService.sendShiftRequestNotificationToPoster(
+                                    pendingNotification.shiftRequest!!, 
+                                    pendingNotification.exchangeShift!!, 
+                                    posterUser
+                                )
+                            } else {
+                                logger.warn { "Poster user ${pendingNotification.posterUserId} not found in business unit ${response.businessUnitId}" }
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -113,6 +130,24 @@ class UsersByBusinessUnitResponseListener(
     }
 
     /**
+     * Registers a pending shift request notification that will be sent once users are received
+     */
+    fun registerPendingShiftRequestNotification(
+        correlationId: String, 
+        shiftRequest: ShiftRequest, 
+        exchangeShift: ExchangeShift
+    ) {
+        pendingNotifications[correlationId] = PendingNotification(
+            type = NotificationType.SHIFT_REQUEST,
+            post = null,
+            exchangeShift = exchangeShift,
+            shiftRequest = shiftRequest,
+            posterUserId = exchangeShift.posterUserId
+        )
+        logger.debug { "Registered pending shift request notification for correlation ID: $correlationId" }
+    }
+
+    /**
      * Gets the count of pending notifications (for monitoring/testing)
      */
     fun getPendingNotificationCount(): Int = pendingNotifications.size
@@ -123,7 +158,8 @@ class UsersByBusinessUnitResponseListener(
  */
 enum class NotificationType {
     POST,
-    EXCHANGE_SHIFT
+    EXCHANGE_SHIFT,
+    SHIFT_REQUEST
 }
 
 /**
@@ -132,5 +168,7 @@ enum class NotificationType {
 private data class PendingNotification(
     val type: NotificationType,
     val post: Post? = null,
-    val exchangeShift: ExchangeShift? = null
+    val exchangeShift: ExchangeShift? = null,
+    val shiftRequest: ShiftRequest? = null,
+    val posterUserId: String? = null
 )
