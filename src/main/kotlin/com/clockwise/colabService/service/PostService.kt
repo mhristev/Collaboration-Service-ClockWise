@@ -9,12 +9,17 @@ import org.springframework.stereotype.Service
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import java.time.Instant
+import java.util.UUID
+import com.clockwise.colabService.listener.UsersByBusinessUnitResponseListener
 
 private val logger = KotlinLogging.logger {}
 
 @Service
 class PostService(
-    private val postRepository: PostRepository
+    private val postRepository: PostRepository,
+    private val kafkaProducerService: KafkaProducerService,
+    private val usersByBusinessUnitResponseListener: UsersByBusinessUnitResponseListener,
+    private val isFirebaseEnabled: Boolean
 ) {
     
     fun createPost(request: CreatePostRequest, authorUserId: String, userRoles: Set<String>, firstName: String?, lastName: String?): Mono<Post> {
@@ -36,7 +41,16 @@ class PostService(
         )
         
         logger.info { "Creating post '${request.title}' for business unit ${request.businessUnitId} by user $authorUserId" }
+        
         return postRepository.save(post)
+            .doOnSuccess { savedPost ->
+                // Send push notifications asynchronously after post is saved
+                if (isFirebaseEnabled) {
+                    triggerNotifications(savedPost)
+                } else {
+                    logger.debug { "Firebase is disabled - skipping notifications for post ${savedPost.id}" }
+                }
+            }
     }
     
     fun getPostsForBusinessUnit(businessUnitId: String, userRoles: Set<String>, page: Int, size: Int): Flux<Post> {
@@ -101,5 +115,30 @@ class PostService(
                     Mono.error(AccessDeniedException("You can only delete your own posts"))
                 }
             }
+    }
+    
+    /**
+     * Triggers push notifications for a new post by requesting users from User Service
+     */
+    private fun triggerNotifications(post: Post) {
+        try {
+            val correlationId = UUID.randomUUID().toString()
+            
+            // Register pending notification
+            usersByBusinessUnitResponseListener.registerPendingNotification(correlationId, post)
+            
+            // Request users by business unit
+            kafkaProducerService.requestUsersByBusinessUnitId(post.businessUnitId, correlationId)
+                .subscribe(
+                    { 
+                        logger.debug { "Successfully requested users for post notification: ${post.id}" }
+                    },
+                    { error ->
+                        logger.error("Failed to request users for post notification: ${error.message}", error)
+                    }
+                )
+        } catch (e: Exception) {
+            logger.error("Error triggering notifications for post ${post.id}: ${e.message}", e)
+        }
     }
 }
