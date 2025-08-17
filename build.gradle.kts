@@ -18,7 +18,13 @@ repositories {
 	mavenCentral()
 }
 
-// Spring Cloud not needed for this service
+configurations.all {
+	resolutionStrategy {
+		force("com.google.firebase:firebase-admin:9.4.1")
+	}
+}
+
+extra["springCloudVersion"] = "2025.0.0"
 
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
@@ -31,14 +37,13 @@ dependencies {
 	implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
-	// Gateway dependency removed - this is not a gateway service
+	implementation("org.springframework.cloud:spring-cloud-starter-gateway-server-webflux")
 	implementation("org.springframework.kafka:spring-kafka")
 	implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
-	implementation("org.springframework.boot:spring-boot-starter-validation")
-	implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
-	
-	// Firebase Admin SDK for push notifications
-	implementation("com.google.firebase:firebase-admin:9.2.0")
+	// Firebase Admin SDK - Updated to latest version to use FCM v1 API
+	implementation("com.google.firebase:firebase-admin:9.4.1") {
+		force = true
+	}
 	runtimeOnly("org.postgresql:postgresql")
 	runtimeOnly("org.postgresql:r2dbc-postgresql")
 	runtimeOnly("org.flywaydb:flyway-database-postgresql")
@@ -54,7 +59,11 @@ dependencies {
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-// Spring Cloud BOM removed - not needed for this service
+dependencyManagement {
+	imports {
+		mavenBom("org.springframework.cloud:spring-cloud-dependencies:${property("springCloudVersion")}")
+	}
+}
 
 kotlin {
 	compilerOptions {
