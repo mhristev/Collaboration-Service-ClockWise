@@ -10,6 +10,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.springframework.stereotype.Service
+import java.time.OffsetDateTime
 
 private val logger = KotlinLogging.logger {}
 
@@ -351,6 +352,292 @@ class NotificationService(
             .putData("shiftEndTime", exchangeShift.shiftEndTime?.toString() ?: "")
             .putData("swapShiftId", shiftRequest.swapShiftId ?: "")
             .putData("createdAt", shiftRequest.createdAt.toString())
+            .build()
+    }
+
+    /**
+     * Sends manager approval notification to managers/admins in a business unit
+     */
+    suspend fun sendManagerApprovalNotification(exchangeShift: ExchangeShift, shiftRequest: ShiftRequest, users: List<UserInfo>) {
+        if (!isFirebaseEnabled || firebaseMessaging == null) {
+            logger.warn("Firebase is not enabled or configured - skipping notification send")
+            return
+        }
+
+        // Filter to only managers and admins
+        val managers = users.filter { user -> 
+            user.role?.lowercase() == "manager" || user.role?.lowercase() == "admin"
+        }
+        
+        val managersWithTokens = managers.filter { !it.fcmToken.isNullOrBlank() }
+        if (managersWithTokens.isEmpty()) {
+            logger.info("No eligible managers with FCM tokens found for business unit ${exchangeShift.businessUnitId}")
+            return
+        }
+
+        logger.info("Sending manager approval notification to ${managersWithTokens.size} managers in business unit ${exchangeShift.businessUnitId}")
+
+        val notification = buildManagerApprovalNotification(exchangeShift, shiftRequest)
+        var successCount = 0
+        var failureCount = 0
+
+        try {
+            withContext(Dispatchers.IO) {
+                managersWithTokens.forEach { manager ->
+                    try {
+                        val message = buildManagerApprovalNotificationMessage(manager.fcmToken!!, notification, exchangeShift, shiftRequest)
+                        val response = firebaseMessaging.send(message)
+                        logger.info("Successfully sent manager approval notification to ${manager.id} (${manager.role}), message ID: $response")
+                        successCount++
+                    } catch (e: Exception) {
+                        logger.warn("Failed to send manager approval notification to ${manager.id} (${manager.role}): ${e.message}")
+                        failureCount++
+                    }
+                }
+                
+                logger.info("Manager approval notification summary: $successCount successful, $failureCount failures")
+            }
+        } catch (e: Exception) {
+            logger.error("Error sending manager approval notifications: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Builds the notification payload for manager approval
+     */
+    private fun buildManagerApprovalNotification(exchangeShift: ExchangeShift, shiftRequest: ShiftRequest): Notification {
+        val title = "Shift Exchange Requires Approval"
+        val posterName = "${exchangeShift.userFirstName ?: ""} ${exchangeShift.userLastName ?: ""}".trim()
+        val requesterName = "${shiftRequest.requesterUserFirstName ?: ""} ${shiftRequest.requesterUserLastName ?: ""}".trim()
+        
+        // Format the shift date if available
+        val shiftDate = exchangeShift.shiftStartTime?.let { startTime ->
+            val formatter = java.time.format.DateTimeFormatter.ofPattern("MMM dd")
+            startTime.format(formatter)
+        }
+        
+        val requestTypeText = when (shiftRequest.requestType) {
+            com.clockwise.colabService.domain.RequestType.TAKE_SHIFT -> "take"
+            com.clockwise.colabService.domain.RequestType.SWAP_SHIFT -> "swap"
+        }
+        
+        val body = when {
+            posterName.isNotBlank() && requesterName.isNotBlank() && shiftDate != null -> {
+                "$requesterName wants to $requestTypeText $posterName's shift on $shiftDate"
+            }
+            requesterName.isNotBlank() && shiftDate != null -> {
+                "$requesterName wants to $requestTypeText a shift on $shiftDate"
+            }
+            shiftDate != null -> {
+                "A shift exchange request needs approval for $shiftDate"
+            }
+            else -> {
+                "A shift exchange request needs your approval"
+            }
+        }
+
+        return Notification.builder()
+            .setTitle(title)
+            .setBody(body)
+            .build()
+    }
+
+    /**
+     * Builds the complete FCM message for manager approval
+     */
+    private fun buildManagerApprovalNotificationMessage(
+        fcmToken: String, 
+        notification: Notification, 
+        exchangeShift: ExchangeShift, 
+        shiftRequest: ShiftRequest
+    ): Message {
+        val posterName = "${exchangeShift.userFirstName ?: ""} ${exchangeShift.userLastName ?: ""}".trim()
+        val requesterName = "${shiftRequest.requesterUserFirstName ?: ""} ${shiftRequest.requesterUserLastName ?: ""}".trim()
+        
+        return Message.builder()
+            .setToken(fcmToken)
+            .setNotification(notification)
+            .putData("type", "manager_approval_required")
+            .putData("exchangeShiftId", exchangeShift.id ?: "")
+            .putData("shiftRequestId", shiftRequest.id ?: "")
+            .putData("businessUnitId", exchangeShift.businessUnitId)
+            .putData("posterUserId", exchangeShift.posterUserId)
+            .putData("posterName", posterName)
+            .putData("requesterUserId", shiftRequest.requesterUserId)
+            .putData("requesterName", requesterName)
+            .putData("requestType", shiftRequest.requestType.toString())
+            .putData("shiftPosition", exchangeShift.shiftPosition ?: "")
+            .putData("shiftStartTime", exchangeShift.shiftStartTime?.toString() ?: "")
+            .putData("shiftEndTime", exchangeShift.shiftEndTime?.toString() ?: "")
+            .putData("swapShiftId", shiftRequest.swapShiftId ?: "")
+            .putData("createdAt", shiftRequest.createdAt.toString())
+            .build()
+    }
+
+    /**
+     * Sends approval notification to the poster user when manager approves the exchange shift
+     */
+    suspend fun sendApprovalNotificationToPoster(exchangeShift: ExchangeShift, shiftRequest: ShiftRequest, posterUser: UserInfo) {
+        if (!isFirebaseEnabled || firebaseMessaging == null) {
+            logger.warn("Firebase is not enabled or configured - skipping notification send")
+            return
+        }
+
+        if (posterUser.fcmToken.isNullOrBlank()) {
+            logger.debug("Poster user ${posterUser.id} has no FCM token - skipping notification")
+            return
+        }
+
+        logger.info("Sending approval notification to poster ${posterUser.id} for exchange shift ${exchangeShift.id}")
+
+        try {
+            val notification = buildApprovalNotificationForPoster(exchangeShift, shiftRequest)
+            val message = buildApprovalNotificationMessage(posterUser.fcmToken!!, notification, exchangeShift, shiftRequest, "poster")
+            
+            withContext(Dispatchers.IO) {
+                val response = firebaseMessaging.send(message)
+                logger.info("Successfully sent approval notification to poster ${posterUser.id}, message ID: $response")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to send approval notification to poster ${posterUser.id}: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Sends approval notification to the requester user when manager approves the exchange shift
+     */
+    suspend fun sendApprovalNotificationToRequester(exchangeShift: ExchangeShift, shiftRequest: ShiftRequest, requesterUser: UserInfo) {
+        if (!isFirebaseEnabled || firebaseMessaging == null) {
+            logger.warn("Firebase is not enabled or configured - skipping notification send")
+            return
+        }
+
+        if (requesterUser.fcmToken.isNullOrBlank()) {
+            logger.debug("Requester user ${requesterUser.id} has no FCM token - skipping notification")
+            return
+        }
+
+        logger.info("Sending approval notification to requester ${requesterUser.id} for exchange shift ${exchangeShift.id}")
+
+        try {
+            val notification = buildApprovalNotificationForRequester(exchangeShift, shiftRequest)
+            val message = buildApprovalNotificationMessage(requesterUser.fcmToken!!, notification, exchangeShift, shiftRequest, "requester")
+            
+            withContext(Dispatchers.IO) {
+                val response = firebaseMessaging.send(message)
+                logger.info("Successfully sent approval notification to requester ${requesterUser.id}, message ID: $response")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to send approval notification to requester ${requesterUser.id}: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Builds the notification payload for poster approval
+     */
+    private fun buildApprovalNotificationForPoster(exchangeShift: ExchangeShift, shiftRequest: ShiftRequest): Notification {
+        val title = "Shift Exchange Approved"
+        val requesterName = "${shiftRequest.requesterUserFirstName ?: ""} ${shiftRequest.requesterUserLastName ?: ""}".trim()
+        
+        // Format the shift date if available
+        val shiftDate = exchangeShift.shiftStartTime?.let { startTime ->
+            val formatter = java.time.format.DateTimeFormatter.ofPattern("MMM dd")
+            startTime.format(formatter)
+        }
+        
+        val requestTypeText = when (shiftRequest.requestType) {
+            com.clockwise.colabService.domain.RequestType.TAKE_SHIFT -> "take"
+            com.clockwise.colabService.domain.RequestType.SWAP_SHIFT -> "swap"
+        }
+        
+        val body = when {
+            requesterName.isNotBlank() && shiftDate != null -> {
+                "Manager approved $requesterName's request to $requestTypeText your shift on $shiftDate"
+            }
+            requesterName.isNotBlank() -> {
+                "Manager approved $requesterName's request to $requestTypeText your shift"
+            }
+            shiftDate != null -> {
+                "Manager approved the request to $requestTypeText your shift on $shiftDate"
+            }
+            else -> {
+                "Manager approved the request to $requestTypeText your shift"
+            }
+        }
+
+        return Notification.builder()
+            .setTitle(title)
+            .setBody(body)
+            .build()
+    }
+
+    /**
+     * Builds the notification payload for requester approval
+     */
+    private fun buildApprovalNotificationForRequester(exchangeShift: ExchangeShift, shiftRequest: ShiftRequest): Notification {
+        val title = "Shift Request Approved"
+        val posterName = "${exchangeShift.userFirstName ?: ""} ${exchangeShift.userLastName ?: ""}".trim()
+        
+        // Format the shift date if available
+        val shiftDate = exchangeShift.shiftStartTime?.let { startTime ->
+            val formatter = java.time.format.DateTimeFormatter.ofPattern("MMM dd")
+            startTime.format(formatter)
+        }
+        
+        val requestTypeText = when (shiftRequest.requestType) {
+            com.clockwise.colabService.domain.RequestType.TAKE_SHIFT -> "take"
+            com.clockwise.colabService.domain.RequestType.SWAP_SHIFT -> "swap"
+        }
+        
+        val body = when {
+            posterName.isNotBlank() && shiftDate != null -> {
+                "Manager approved your request to $requestTypeText $posterName's shift on $shiftDate"
+            }
+            shiftDate != null -> {
+                "Manager approved your request to $requestTypeText the shift on $shiftDate"
+            }
+            else -> {
+                "Manager approved your shift $requestTypeText request"
+            }
+        }
+
+        return Notification.builder()
+            .setTitle(title)
+            .setBody(body)
+            .build()
+    }
+
+    /**
+     * Builds the complete FCM message for approval notifications
+     */
+    private fun buildApprovalNotificationMessage(
+        fcmToken: String, 
+        notification: Notification, 
+        exchangeShift: ExchangeShift, 
+        shiftRequest: ShiftRequest,
+        recipient: String // "poster" or "requester"
+    ): Message {
+        val posterName = "${exchangeShift.userFirstName ?: ""} ${exchangeShift.userLastName ?: ""}".trim()
+        val requesterName = "${shiftRequest.requesterUserFirstName ?: ""} ${shiftRequest.requesterUserLastName ?: ""}".trim()
+        
+        return Message.builder()
+            .setToken(fcmToken)
+            .setNotification(notification)
+            .putData("type", "shift_exchange_approved")
+            .putData("recipient", recipient)
+            .putData("exchangeShiftId", exchangeShift.id ?: "")
+            .putData("shiftRequestId", shiftRequest.id ?: "")
+            .putData("businessUnitId", exchangeShift.businessUnitId)
+            .putData("posterUserId", exchangeShift.posterUserId)
+            .putData("posterName", posterName)
+            .putData("requesterUserId", shiftRequest.requesterUserId)
+            .putData("requesterName", requesterName)
+            .putData("requestType", shiftRequest.requestType.toString())
+            .putData("shiftPosition", exchangeShift.shiftPosition ?: "")
+            .putData("shiftStartTime", exchangeShift.shiftStartTime?.toString() ?: "")
+            .putData("shiftEndTime", exchangeShift.shiftEndTime?.toString() ?: "")
+            .putData("swapShiftId", shiftRequest.swapShiftId ?: "")
+            .putData("approvedAt", OffsetDateTime.now().toString())
             .build()
     }
 

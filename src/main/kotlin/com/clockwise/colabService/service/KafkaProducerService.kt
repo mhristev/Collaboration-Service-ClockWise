@@ -19,15 +19,18 @@ class KafkaProducerService(
     @Value("\${kafka.topic.shift-exchange-events}")
     private lateinit var shiftExchangeTopic: String
     
+    @Value("\${kafka.topic.shift-exchange-approval}")
+    private lateinit var shiftExchangeApprovalTopic: String
+    
     @Value("\${kafka.topic.users-by-business-unit-request}")
     private lateinit var usersRequestTopic: String
     
     fun sendShiftExchangeApprovalEvent(event: ShiftExchangeEventDto): Mono<Void> {
         return Mono.fromCallable {
             val eventJson = objectMapper.writeValueAsString(event)
-            logger.info { "Sending shift exchange approval event to topic $shiftExchangeTopic: $eventJson" }
+            logger.info { "Sending shift exchange approval event to topic $shiftExchangeApprovalTopic: $eventJson" }
             
-            kafkaTemplate.send(shiftExchangeTopic, event.requestId, eventJson)
+            kafkaTemplate.send(shiftExchangeApprovalTopic, event.requestId, eventJson)
         }
         .doOnSuccess { 
             logger.info { "Successfully sent shift exchange approval event for request ${event.requestId}" }

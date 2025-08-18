@@ -94,6 +94,39 @@ class UsersByBusinessUnitResponseListener(
                                 logger.warn { "Poster user ${pendingNotification.posterUserId} not found in business unit ${response.businessUnitId}" }
                             }
                         }
+                        NotificationType.MANAGER_APPROVAL -> {
+                            // Send to all managers and admins in the business unit
+                            notificationService.sendManagerApprovalNotification(
+                                pendingNotification.exchangeShift!!, 
+                                pendingNotification.shiftRequest!!, 
+                                users
+                            )
+                        }
+                        NotificationType.APPROVAL -> {
+                            // Send approval notifications to both poster and requester
+                            val posterUser = users.find { it.id == pendingNotification.exchangeShift!!.posterUserId }
+                            val requesterUser = users.find { it.id == pendingNotification.shiftRequest!!.requesterUserId }
+                            
+                            if (posterUser != null) {
+                                notificationService.sendApprovalNotificationToPoster(
+                                    pendingNotification.exchangeShift!!, 
+                                    pendingNotification.shiftRequest!!, 
+                                    posterUser
+                                )
+                            } else {
+                                logger.warn { "Poster user ${pendingNotification.exchangeShift!!.posterUserId} not found in business unit ${response.businessUnitId}" }
+                            }
+                            
+                            if (requesterUser != null) {
+                                notificationService.sendApprovalNotificationToRequester(
+                                    pendingNotification.exchangeShift!!, 
+                                    pendingNotification.shiftRequest!!, 
+                                    requesterUser
+                                )
+                            } else {
+                                logger.warn { "Requester user ${pendingNotification.shiftRequest!!.requesterUserId} not found in business unit ${response.businessUnitId}" }
+                            }
+                        }
                     }
                 } catch (e: Exception) {
                     logger.error("Error sending notifications: ${e.message}", e)
@@ -148,6 +181,42 @@ class UsersByBusinessUnitResponseListener(
     }
 
     /**
+     * Registers a pending manager approval notification that will be sent once users are received
+     */
+    fun registerPendingManagerApprovalNotification(
+        correlationId: String, 
+        shiftRequest: ShiftRequest, 
+        exchangeShift: ExchangeShift
+    ) {
+        pendingNotifications[correlationId] = PendingNotification(
+            type = NotificationType.MANAGER_APPROVAL,
+            post = null,
+            exchangeShift = exchangeShift,
+            shiftRequest = shiftRequest,
+            posterUserId = null
+        )
+        logger.debug { "Registered pending manager approval notification for correlation ID: $correlationId" }
+    }
+
+    /**
+     * Registers a pending approval notification that will be sent to both poster and requester
+     */
+    fun registerPendingApprovalNotification(
+        correlationId: String, 
+        shiftRequest: ShiftRequest, 
+        exchangeShift: ExchangeShift
+    ) {
+        pendingNotifications[correlationId] = PendingNotification(
+            type = NotificationType.APPROVAL,
+            post = null,
+            exchangeShift = exchangeShift,
+            shiftRequest = shiftRequest,
+            posterUserId = null
+        )
+        logger.debug { "Registered pending approval notification for correlation ID: $correlationId" }
+    }
+
+    /**
      * Gets the count of pending notifications (for monitoring/testing)
      */
     fun getPendingNotificationCount(): Int = pendingNotifications.size
@@ -159,7 +228,9 @@ class UsersByBusinessUnitResponseListener(
 enum class NotificationType {
     POST,
     EXCHANGE_SHIFT,
-    SHIFT_REQUEST
+    SHIFT_REQUEST,
+    MANAGER_APPROVAL,
+    APPROVAL
 }
 
 /**

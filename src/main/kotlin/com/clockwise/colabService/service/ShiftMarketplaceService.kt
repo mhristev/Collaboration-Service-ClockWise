@@ -197,7 +197,15 @@ class ShiftMarketplaceService(
                         )
                     }
             }
-            .doOnSuccess { logger.info { "Successfully accepted request $requestId" } }
+            .doOnSuccess { (updatedExchangeShift, updatedRequest) ->
+                logger.info { "Successfully accepted request $requestId" }
+                // Send manager approval notifications
+                if (isFirebaseEnabled) {
+                    triggerManagerApprovalNotifications(updatedRequest, updatedExchangeShift)
+                } else {
+                    logger.debug { "Firebase is disabled - skipping manager approval notifications for request $requestId" }
+                }
+            }
     }
     
     fun getPendingManagerApprovals(businessUnitId: String): Flux<ShiftRequest> {
@@ -287,7 +295,15 @@ class ShiftMarketplaceService(
                             )
                     }
             }
-            .doOnSuccess { logger.info { "Successfully updated exchange shift $exchangeShiftId to $status" } }
+            .doOnSuccess { (updatedExchangeShift, updatedRequest) ->
+                logger.info { "Successfully updated exchange shift $exchangeShiftId to $status" }
+                // Send approval notifications when approved
+                if (status.uppercase() == "APPROVED" && isFirebaseEnabled) {
+                    triggerApprovalNotifications(updatedRequest, updatedExchangeShift)
+                } else if (status.uppercase() == "APPROVED") {
+                    logger.debug { "Firebase is disabled - skipping approval notifications for exchange shift $exchangeShiftId" }
+                }
+            }
     }
     
     @Transactional
@@ -313,15 +329,34 @@ class ShiftMarketplaceService(
                             )
                             .then(
                                 Mono.just(
-                                    request.copy(
-                                        status = RequestStatus.APPROVED_BY_MANAGER,
-                                        updatedAt = OffsetDateTime.now()
+                                    Pair(
+                                        exchangeShift.copy(
+                                            status = ExchangeShiftStatus.APPROVED,
+                                            updatedAt = OffsetDateTime.now()
+                                        ),
+                                        request.copy(
+                                            status = RequestStatus.APPROVED_BY_MANAGER,
+                                            updatedAt = OffsetDateTime.now()
+                                        )
                                     )
                                 )
                             )
                     }
             }
-            .doOnSuccess { logger.info { "Successfully approved request $requestId" } }
+            .map { it.second } // Return only the ShiftRequest for the controller response
+            .doOnSuccess { approvedRequest ->
+                logger.info { "Successfully approved request $requestId" }
+                // Send approval notifications
+                if (isFirebaseEnabled) {
+                    // We need to reconstruct the exchange shift from the database since we only have the request
+                    exchangeShiftRepository.findById(approvedRequest.exchangeShiftId)
+                        .subscribe { exchangeShift ->
+                            triggerApprovalNotifications(approvedRequest, exchangeShift)
+                        }
+                } else {
+                    logger.debug { "Firebase is disabled - skipping approval notifications for request $requestId" }
+                }
+            }
     }
     
     @Transactional
@@ -462,6 +497,68 @@ class ShiftMarketplaceService(
                 )
         } catch (e: Exception) {
             logger.error("Error triggering notifications for shift request ${shiftRequest.id}: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Triggers push notifications for manager approval by requesting users from User Service
+     */
+    private fun triggerManagerApprovalNotifications(shiftRequest: ShiftRequest, exchangeShift: ExchangeShift) {
+        try {
+            val correlationId = UUID.randomUUID().toString()
+            
+            logger.info { "Triggering manager approval notification for request ${shiftRequest.id} in business unit ${exchangeShift.businessUnitId}" }
+            
+            // Register pending notification
+            usersByBusinessUnitResponseListener.registerPendingManagerApprovalNotification(
+                correlationId, 
+                shiftRequest, 
+                exchangeShift
+            )
+            
+            // Request users by business unit (we need to find managers in the business unit)
+            kafkaProducerService.requestUsersByBusinessUnitId(exchangeShift.businessUnitId, correlationId)
+                .subscribe(
+                    { 
+                        logger.debug { "Successfully requested users for manager approval notification: ${shiftRequest.id}" }
+                    },
+                    { error ->
+                        logger.error("Failed to request users for manager approval notification: ${error.message}", error)
+                    }
+                )
+        } catch (e: Exception) {
+            logger.error("Error triggering notifications for manager approval ${shiftRequest.id}: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Triggers push notifications for approval by requesting users from User Service
+     */
+    private fun triggerApprovalNotifications(shiftRequest: ShiftRequest, exchangeShift: ExchangeShift) {
+        try {
+            val correlationId = UUID.randomUUID().toString()
+            
+            logger.info { "Triggering approval notifications for request ${shiftRequest.id} in business unit ${exchangeShift.businessUnitId}" }
+            
+            // Register pending notification
+            usersByBusinessUnitResponseListener.registerPendingApprovalNotification(
+                correlationId, 
+                shiftRequest, 
+                exchangeShift
+            )
+            
+            // Request users by business unit (we need to find both poster and requester in the business unit)
+            kafkaProducerService.requestUsersByBusinessUnitId(exchangeShift.businessUnitId, correlationId)
+                .subscribe(
+                    { 
+                        logger.debug { "Successfully requested users for approval notification: ${shiftRequest.id}" }
+                    },
+                    { error ->
+                        logger.error("Failed to request users for approval notification: ${error.message}", error)
+                    }
+                )
+        } catch (e: Exception) {
+            logger.error("Error triggering approval notifications for request ${shiftRequest.id}: ${e.message}", e)
         }
     }
 }
