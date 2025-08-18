@@ -2,6 +2,7 @@ package com.clockwise.colabService.repository
 
 import com.clockwise.colabService.domain.RequestStatus
 import com.clockwise.colabService.domain.ShiftRequest
+import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.r2dbc.repository.R2dbcRepository
 import org.springframework.stereotype.Repository
@@ -80,4 +81,8 @@ interface ShiftRequestRepository : R2dbcRepository<ShiftRequest, String> {
         exchangeShiftId: String,
         requesterUserId: String
     ): Mono<Long>
+    
+    @Query("UPDATE shift_requests SET is_execution_possible = :isExecutionPossible, updated_at = CURRENT_TIMESTAMP WHERE id = :id")
+    @Modifying
+    fun updateExecutionPossibility(id: String, isExecutionPossible: Boolean): Mono<Int>
 }

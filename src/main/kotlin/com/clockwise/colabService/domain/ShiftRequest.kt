@@ -37,6 +37,9 @@ data class ShiftRequest(
     @Column("requester_user_last_name")
     val requesterUserLastName: String? = null,
     
+    @Column("is_execution_possible")
+    val isExecutionPossible: Boolean? = null,
+    
     val status: RequestStatus = RequestStatus.PENDING,
     
     @Column("created_at")

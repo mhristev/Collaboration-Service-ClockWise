@@ -25,6 +25,12 @@ class KafkaProducerService(
     @Value("\${kafka.topic.users-by-business-unit-request}")
     private lateinit var usersRequestTopic: String
     
+    @Value("\${kafka.topic.schedule-conflict-check-request}")
+    private lateinit var scheduleConflictCheckRequestTopic: String
+    
+    @Value("\${kafka.topic.swap-conflict-check-request}")
+    private lateinit var swapConflictCheckRequestTopic: String
+    
     fun sendShiftExchangeApprovalEvent(event: ShiftExchangeEventDto): Mono<Void> {
         return Mono.fromCallable {
             val eventJson = objectMapper.writeValueAsString(event)
@@ -60,6 +66,40 @@ class KafkaProducerService(
         }
         .doOnError { error ->
             logger.error(error) { "Failed to send users request for business unit $businessUnitId" }
+        }
+        .then()
+    }
+    
+    /**
+     * Send schedule conflict check request to Planning Service
+     */
+    fun sendScheduleConflictCheckRequest(requestJson: String, correlationId: String): Mono<Void> {
+        return Mono.fromCallable {
+            logger.info { "Sending schedule conflict check request with correlation ID $correlationId" }
+            kafkaTemplate.send(scheduleConflictCheckRequestTopic, correlationId, requestJson)
+        }
+        .doOnSuccess { 
+            logger.info { "Successfully sent schedule conflict check request for correlation ID $correlationId" }
+        }
+        .doOnError { error ->
+            logger.error(error) { "Failed to send schedule conflict check request for correlation ID $correlationId" }
+        }
+        .then()
+    }
+    
+    /**
+     * Send swap conflict check request to Planning Service
+     */
+    fun sendSwapConflictCheckRequest(requestJson: String, correlationId: String): Mono<Void> {
+        return Mono.fromCallable {
+            logger.info { "Sending swap conflict check request with correlation ID $correlationId" }
+            kafkaTemplate.send(swapConflictCheckRequestTopic, correlationId, requestJson)
+        }
+        .doOnSuccess { 
+            logger.info { "Successfully sent swap conflict check request for correlation ID $correlationId" }
+        }
+        .doOnError { error ->
+            logger.error(error) { "Failed to send swap conflict check request for correlation ID $correlationId" }
         }
         .then()
     }

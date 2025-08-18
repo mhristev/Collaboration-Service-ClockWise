@@ -16,6 +16,7 @@ data class ShiftRequestDto(
     val swapShiftEndTime: OffsetDateTime? = null,
     val requesterUserFirstName: String? = null,
     val requesterUserLastName: String? = null,
+    val isExecutionPossible: Boolean? = null,
     val status: RequestStatus,
     val createdAt: OffsetDateTime,
     val updatedAt: OffsetDateTime
@@ -33,6 +34,7 @@ data class ShiftRequestDto(
                 swapShiftEndTime = shiftRequest.swapShiftEndTime,
                 requesterUserFirstName = shiftRequest.requesterUserFirstName,
                 requesterUserLastName = shiftRequest.requesterUserLastName,
+                isExecutionPossible = shiftRequest.isExecutionPossible,
                 status = shiftRequest.status,
                 createdAt = shiftRequest.createdAt,
                 updatedAt = shiftRequest.updatedAt

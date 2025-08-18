@@ -28,6 +28,7 @@ class ShiftMarketplaceService(
     private val shiftRequestRepository: ShiftRequestRepository,
     private val kafkaProducerService: KafkaProducerService,
     private val usersByBusinessUnitResponseListener: UsersByBusinessUnitResponseListener,
+    private val scheduleConflictService: ScheduleConflictService,
     private val isFirebaseEnabled: Boolean
 ) {
     
@@ -116,7 +117,27 @@ class ShiftMarketplaceService(
                                 requesterUserFirstName = request.requesterUserFirstName,
                                 requesterUserLastName = request.requesterUserLastName
                             )
+                            
+                            // Save the shift request first
                             shiftRequestRepository.save(shiftRequest)
+                                .flatMap { savedRequest ->
+                                    // Perform conflict check and update database in the reactive chain
+                                    performConflictCheck(savedRequest, exchangeShift)
+                                        .onErrorReturn(false) // If conflict check fails, treat as not executable
+                                        .doOnNext { isExecutionPossible ->
+                                            logger.info { "Conflict check completed for request ${savedRequest.id}: executionPossible=$isExecutionPossible" }
+                                        }
+                                        .doOnError { error ->
+                                            logger.error(error) { "Conflict check failed for request ${savedRequest.id}, setting execution possibility to false" }
+                                        }
+                                        .flatMap { isExecutionPossible ->
+                                            // Update the request with conflict check result in the reactive chain
+                                            scheduleConflictService.updateShiftRequestConflictStatus(
+                                                savedRequest.id!!, 
+                                                isExecutionPossible
+                                            ).thenReturn(savedRequest)
+                                        }
+                                }
                                 .doOnSuccess { savedRequest ->
                                     logger.info { "Successfully submitted shift request: ${savedRequest.id}" }
                                     // Send notification to the exchange shift poster
@@ -560,5 +581,98 @@ class ShiftMarketplaceService(
         } catch (e: Exception) {
             logger.error("Error triggering approval notifications for request ${shiftRequest.id}: ${e.message}", e)
         }
+    }
+    
+    /**
+     * Performs conflict checking for a shift request based on the request type
+     */
+    private fun performConflictCheck(shiftRequest: ShiftRequest, exchangeShift: ExchangeShift): Mono<Boolean> {
+        return when (shiftRequest.requestType) {
+            RequestType.TAKE_SHIFT -> {
+                logger.info { "Performing TAKE_SHIFT conflict check for request ${shiftRequest.id}" }
+                if (exchangeShift.shiftStartTime == null || exchangeShift.shiftEndTime == null) {
+                    logger.warn { "Exchange shift ${exchangeShift.id} missing time information, cannot perform conflict check" }
+                    Mono.just(false) // Cannot execute if time info is missing
+                } else {
+                    scheduleConflictService.checkTakeShiftConflicts(
+                        requesterUserId = shiftRequest.requesterUserId,
+                        shiftStartTime = exchangeShift.shiftStartTime,
+                        shiftEndTime = exchangeShift.shiftEndTime
+                    )
+                }
+            }
+            RequestType.SWAP_SHIFT -> {
+                logger.info { "Performing SWAP_SHIFT conflict check for request ${shiftRequest.id}" }
+                if (shiftRequest.swapShiftId == null) {
+                    logger.error { "SWAP_SHIFT request ${shiftRequest.id} missing swapShiftId" }
+                    Mono.just(false) // Cannot execute swap without swap shift ID
+                } else {
+                    scheduleConflictService.checkSwapShiftConflicts(
+                        posterUserId = exchangeShift.posterUserId,
+                        requesterUserId = shiftRequest.requesterUserId,
+                        originalShiftId = exchangeShift.planningServiceShiftId,
+                        swapShiftId = shiftRequest.swapShiftId
+                    )
+                }
+            }
+        }
+    }
+    
+    /**
+     * Trigger a conflict check for an existing shift request
+     */
+    @Transactional
+    fun recheckConflicts(requestId: String): Mono<ShiftRequest> {
+        logger.info { "Rechecking conflicts for request $requestId" }
+        
+        return shiftRequestRepository.findById(requestId)
+            .switchIfEmpty(Mono.error(IllegalArgumentException("Request not found")))
+            .doOnNext { shiftRequest ->
+                logger.info { "Found shift request: requestType=${shiftRequest.requestType}, exchangeShiftId=${shiftRequest.exchangeShiftId}" }
+            }
+            .flatMap { shiftRequest ->
+                exchangeShiftRepository.findById(shiftRequest.exchangeShiftId)
+                    .switchIfEmpty(Mono.error(IllegalArgumentException("Exchange shift not found")))
+                    .doOnNext { exchangeShift ->
+                        logger.info { "Found exchange shift: planningServiceShiftId=${exchangeShift.planningServiceShiftId}, shiftStartTime=${exchangeShift.shiftStartTime}, shiftEndTime=${exchangeShift.shiftEndTime}" }
+                    }
+                    .flatMap { exchangeShift ->
+                        // Perform conflict check
+                        performConflictCheck(shiftRequest, exchangeShift)
+                            .doOnNext { result ->
+                                logger.info { "Conflict check result for request $requestId: isExecutionPossible=$result" }
+                            }
+                            .onErrorResume { error ->
+                                logger.error(error) { "Conflict check failed for request $requestId, defaulting to false" }
+                                Mono.just(false) // If conflict check fails, treat as not executable
+                            }
+                            .flatMap { isExecutionPossible ->
+                                // Update the request with new conflict check result
+                                logger.info { "Updating shift request $requestId with isExecutionPossible=$isExecutionPossible" }
+                                scheduleConflictService.updateShiftRequestConflictStatus(
+                                    requestId, 
+                                    isExecutionPossible
+                                ).doOnSuccess { 
+                                    logger.info { "Successfully updated shift request $requestId conflict status" }
+                                }
+                                .doOnError { error ->
+                                    logger.error(error) { "Failed to update shift request $requestId conflict status" }
+                                }
+                                .then(
+                                    // Return updated request
+                                    shiftRequestRepository.findById(requestId)
+                                        .map { updatedRequest ->
+                                            updatedRequest.copy(isExecutionPossible = isExecutionPossible)
+                                        }
+                                )
+                            }
+                    }
+            }
+            .doOnSuccess { updatedRequest ->
+                logger.info { "Conflict recheck completed for request $requestId: executionPossible=${updatedRequest.isExecutionPossible}" }
+            }
+            .doOnError { error ->
+                logger.error(error) { "Conflict recheck failed for request $requestId" }
+            }
     }
 }

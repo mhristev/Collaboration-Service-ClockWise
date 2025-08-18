@@ -147,4 +147,20 @@ class ManagerApprovalController(
                 ResponseEntity.badRequest().build()
             )
     }
+    
+    @PostMapping("/requests/{requestId}/recheck-conflicts")
+    @PreAuthorize("hasAnyRole('admin', 'manager')")
+    fun recheckConflicts(
+        @PathVariable requestId: String
+    ): Mono<ResponseEntity<ShiftRequestDto>> {
+        logger.info { "Manager triggering conflict recheck for request $requestId" }
+        
+        return shiftMarketplaceService.recheckConflicts(requestId)
+            .map { shiftRequest ->
+                ResponseEntity.ok(ShiftRequestDto.fromDomain(shiftRequest))
+            }
+            .onErrorReturn(
+                ResponseEntity.badRequest().build()
+            )
+    }
 }
